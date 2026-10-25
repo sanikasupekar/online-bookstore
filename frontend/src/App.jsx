@@ -1,7 +1,45 @@
 import React, { useEffect, useState } from "react";
-import { apiRequest } from './api.js';
+import { apiRequest, AUTH_EXPIRY_KEY, AUTH_TOKEN_KEY } from './api.js';
 
 const emptyBook = { title: '', author: '', price: '' };
+
+function decodeTokenPayload(token) {
+  const encodedPayload = token.split('.')[1];
+  if (!encodedPayload) {
+    throw new Error('The authentication token is invalid.');
+  }
+
+  const base64Payload = encodedPayload.replace(/-/g, '+').replace(/_/g, '/');
+  return JSON.parse(atob(base64Payload.padEnd(Math.ceil(base64Payload.length / 4) * 4, '=')));
+}
+
+function readAuthSession() {
+  const token = localStorage.getItem(AUTH_TOKEN_KEY);
+  if (!token) {
+    return null;
+  }
+
+  try {
+    const payload = decodeTokenPayload(token);
+    const role = String(payload.role || '').replace(/^ROLE_/, '').toUpperCase();
+    const expiresAt = Number(payload.exp) * 1000
+      || Number(localStorage.getItem(AUTH_EXPIRY_KEY));
+    if (!['ADMIN', 'USER'].includes(role) || !expiresAt || expiresAt <= Date.now()) {
+      throw new Error('The saved login session is invalid or has expired.');
+    }
+
+    return {
+      token,
+      username: payload.username || payload.sub || 'User',
+      role,
+      expiresAt,
+    };
+  } catch {
+    localStorage.removeItem(AUTH_TOKEN_KEY);
+    localStorage.removeItem(AUTH_EXPIRY_KEY);
+    return null;
+  }
+}
 
 function formatPrice(price) {
   return new Intl.NumberFormat('en-US', {
@@ -13,6 +51,10 @@ function formatPrice(price) {
 export default function App() {
   // Keep navigation, API data, and the admin form in one small app state.
   const [page, setPage] = useState('books');
+  const [auth, setAuth] = useState(readAuthSession);
+  const [authUsername, setAuthUsername] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authNotice, setAuthNotice] = useState('');
   const [books, setBooks] = useState([]);
   const [cart, setCart] = useState([]);
   const [query, setQuery] = useState('');
@@ -32,16 +74,115 @@ export default function App() {
     setCart(await apiRequest('/cart'));
   }
 
-  // Fetch initial data once when the interface starts.
+  const isAdmin = auth?.role === 'ADMIN';
+
   useEffect(() => {
-    Promise.all([loadBooks(), loadCart()]).catch((requestError) => {
+    loadBooks().catch((requestError) => {
       setError(requestError.message);
     });
   }, []);
 
+  useEffect(() => {
+    if (!auth) {
+      setCart([]);
+      return;
+    }
+    loadCart().catch((requestError) => setError(requestError.message));
+  }, [auth?.token]);
+
+  useEffect(() => {
+    function handleAuthExpired() {
+      setAuth(null);
+      setCart([]);
+      setPage('login');
+      setError('Your session has expired. Please log in again.');
+    }
+
+    window.addEventListener('auth-expired', handleAuthExpired);
+    return () => window.removeEventListener('auth-expired', handleAuthExpired);
+  }, []);
+
+  useEffect(() => {
+    if (!auth) {
+      return undefined;
+    }
+
+    const timeout = window.setTimeout(() => {
+      localStorage.removeItem(AUTH_TOKEN_KEY);
+      localStorage.removeItem(AUTH_EXPIRY_KEY);
+      setAuth(null);
+      setCart([]);
+      setPage('login');
+      setError('Your session has expired. Please log in again.');
+    }, Math.max(0, auth.expiresAt - Date.now()));
+
+    return () => window.clearTimeout(timeout);
+  }, [auth]);
+
   function changePage(nextPage) {
+    if (nextPage === 'admin' && !isAdmin) {
+      return;
+    }
+    if (nextPage === 'cart' && !auth) {
+      setPage('login');
+      return;
+    }
     setError('');
+    setAuthNotice('');
     setPage(nextPage);
+  }
+
+  async function submitAuth(event) {
+    event.preventDefault();
+    setError('');
+    setAuthNotice('');
+
+    try {
+      const response = await apiRequest(`/auth/${page}`, {
+        method: 'POST',
+        body: JSON.stringify({ username: authUsername.trim(), password: authPassword }),
+      });
+
+      if (page === 'register') {
+        setAuthPassword('');
+        setAuthNotice('Account created. Please log in.');
+        setPage('login');
+        return;
+      }
+
+      const token = response.token;
+      const payload = decodeTokenPayload(token);
+      const role = String(payload.role || '').replace(/^ROLE_/, '').toUpperCase();
+      if (!['ADMIN', 'USER'].includes(role)) {
+        throw new Error('The login response did not include a valid user role.');
+      }
+
+      const expiresAt = Number(payload.exp) * 1000
+        || Date.now() + (Number(response.expiresIn) || 3600) * 1000;
+      localStorage.setItem(AUTH_TOKEN_KEY, token);
+      localStorage.setItem(AUTH_EXPIRY_KEY, String(expiresAt));
+      setAuth({
+        token,
+        username: payload.username || payload.sub || authUsername.trim(),
+        role,
+        expiresAt,
+      });
+      setAuthPassword('');
+      setPage('books');
+    } catch (requestError) {
+      setError(requestError.status === 401
+        ? 'Incorrect username or password. Please try again.'
+        : requestError.message);
+    }
+  }
+
+  function logout() {
+    localStorage.removeItem(AUTH_TOKEN_KEY);
+    localStorage.removeItem(AUTH_EXPIRY_KEY);
+    setAuth(null);
+    setCart([]);
+    setPage('books');
+    setError('');
   }
 
   async function searchBooks(event) {
@@ -149,18 +290,33 @@ export default function App() {
           >
             Browse books
           </button>
-          <button
-            className={page === 'admin' ? 'nav-link active' : 'nav-link'}
-            onClick={() => changePage('admin')}
-          >
-            Manage books
-          </button>
-          <button
-            className={page === 'cart' ? 'nav-link active' : 'nav-link'}
-            onClick={() => changePage('cart')}
-          >
-            Cart <span className="cart-count">{cartCount}</span>
-          </button>
+          {isAdmin && (
+            <button
+              className={page === 'admin' ? 'nav-link active' : 'nav-link'}
+              onClick={() => changePage('admin')}
+            >
+              Manage books
+            </button>
+          )}
+          {auth ? (
+            <button
+              className={page === 'cart' ? 'nav-link active' : 'nav-link'}
+              onClick={() => changePage('cart')}
+            >
+              Cart <span className="cart-count">{cartCount}</span>
+            </button>
+          ) : (
+            <>
+              <button className="nav-link" onClick={() => changePage('login')}>Login</button>
+              <button className="nav-link" onClick={() => changePage('register')}>Register</button>
+            </>
+          )}
+          {auth && (
+            <div className="account-menu">
+              <span className="account-label">{auth.username} ({auth.role})</span>
+              <button className="nav-link" onClick={logout}>Logout</button>
+            </div>
+          )}
         </nav>
       </header>
 
@@ -169,6 +325,51 @@ export default function App() {
           <div className="error-banner" role="alert">
             {error}
           </div>
+        )}
+
+        {(page === 'login' || page === 'register') && (
+          <section className="auth-layout">
+            <div className="page-intro">
+              <p className="eyebrow">{page === 'login' ? 'Welcome back' : 'Join the bookstore'}</p>
+              <h1>{page === 'login' ? 'Log in to your account' : 'Create an account'}</h1>
+            </div>
+            {authNotice && <p className="success-banner" role="status">{authNotice}</p>}
+            <form className="book-form panel" onSubmit={submitAuth}>
+              <label>
+                Username
+                <input
+                  autoComplete="username"
+                  required
+                  value={authUsername}
+                  onChange={(event) => setAuthUsername(event.target.value)}
+                />
+              </label>
+              <label>
+                Password
+                <input
+                  autoComplete={page === 'login' ? 'current-password' : 'new-password'}
+                  required
+                  type="password"
+                  value={authPassword}
+                  onChange={(event) => setAuthPassword(event.target.value)}
+                />
+              </label>
+              <button className="button button-dark" type="submit">
+                {page === 'login' ? 'Log in' : 'Register'}
+              </button>
+              <button
+                className="text-button auth-switch"
+                type="button"
+                onClick={() => {
+                  setError('');
+                  setAuthNotice('');
+                  setPage(page === 'login' ? 'register' : 'login');
+                }}
+              >
+                {page === 'login' ? 'Need an account? Register' : 'Already registered? Log in'}
+              </button>
+            </form>
+          </section>
         )}
 
         {page === 'books' && (
@@ -216,12 +417,14 @@ export default function App() {
                       </div>
                       <strong>{formatPrice(book.price)}</strong>
                     </div>
-                    <button
-                      className="button button-outline full-width"
-                      onClick={() => addToCart(book.id)}
-                    >
-                      Add to cart
-                    </button>
+                    {auth && (
+                      <button
+                        className="button button-outline full-width"
+                        onClick={() => addToCart(book.id)}
+                      >
+                        Add to cart
+                      </button>
+                    )}
                   </article>
                 ))}
               </div>
@@ -229,7 +432,7 @@ export default function App() {
           </section>
         )}
 
-        {page === 'admin' && (
+        {page === 'admin' && isAdmin && (
           <section className="admin-layout">
             <div className="page-intro">
               <p className="eyebrow">Admin</p>
@@ -303,7 +506,7 @@ export default function App() {
           </section>
         )}
 
-        {page === 'cart' && (
+        {page === 'cart' && auth && (
           <section>
             <div className="page-intro">
               <p className="eyebrow">Your selection</p>

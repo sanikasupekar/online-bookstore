@@ -76,6 +76,17 @@ nav {
   gap: 28px;
 }
 
+.account-menu {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.account-label {
+  color: var(--muted);
+  font-size: 13px;
+}
+
 .nav-link,
 .text-button {
   padding: 8px 0;
@@ -321,6 +332,28 @@ input {
 .admin-layout {
   max-width: 850px;
   margin: 0 auto;
+}
+
+.auth-layout {
+  max-width: 480px;
+  margin: 32px auto;
+}
+
+.auth-layout .page-intro {
+  margin-bottom: 24px;
+}
+
+.auth-switch {
+  justify-self: start;
+}
+
+.success-banner {
+  margin: 16px 0;
+  padding: 12px 16px;
+  color: #28523c;
+  background: #e8f2e9;
+  border: 1px solid #c6dec9;
+  border-radius: 3px;
 }
 
 .book-form {

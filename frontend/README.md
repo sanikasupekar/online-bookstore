@@ -13,3 +13,10 @@ This React app uses Vite and calls the Spring Boot API at `http://localhost:8080
 
 The backend allows this local Vite origin through its CORS configuration. The
 cart is a shared cart stored in the backend database; it is not tied to a user.
+
+## Authentication
+
+Use the Login and Register links to authenticate with the backend. The frontend
+stores the JWT in local storage, sends it with API requests, and shows cart
+features to signed-in users and book management to admins. Expired or rejected
+sessions are cleared automatically.
