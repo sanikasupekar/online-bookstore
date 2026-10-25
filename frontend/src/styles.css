@@ -189,6 +189,16 @@ input {
   border-radius: 3px;
 }
 
+select {
+  min-height: 38px;
+  padding: 7px 10px;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid #dcd8cf;
+  border-radius: 3px;
+  font: inherit;
+}
+
 .search-form input {
   width: min(250px, 44vw);
 }
@@ -471,6 +481,58 @@ input {
 .cart-summary .muted {
   margin-top: 14px;
   line-height: 1.5;
+}
+
+.cart-summary .button {
+  margin-top: 12px;
+}
+
+.orders-list {
+  display: grid;
+  gap: 18px;
+}
+
+.order-card h2 {
+  margin: 0 0 5px;
+  font-family: 'Playfair Display', serif;
+  font-size: 21px;
+}
+
+.order-heading,
+.order-item,
+.order-total {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.status-select {
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.order-status {
+  color: var(--green);
+  font-size: 13px;
+}
+
+.order-items {
+  margin-top: 18px;
+  border-top: 1px solid var(--line);
+}
+
+.order-item {
+  padding: 12px 0;
+  color: #53564f;
+  border-bottom: 1px solid var(--line);
+  font-size: 14px;
+}
+
+.order-total {
+  padding-top: 14px;
 }
 
 .empty-state {

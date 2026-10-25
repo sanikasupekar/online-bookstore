@@ -57,6 +57,7 @@ export default function App() {
   const [authNotice, setAuthNotice] = useState('');
   const [books, setBooks] = useState([]);
   const [cart, setCart] = useState([]);
+  const [orders, setOrders] = useState([]);
   const [query, setQuery] = useState('');
   const [bookForm, setBookForm] = useState(emptyBook);
   const [editingId, setEditingId] = useState(null);
@@ -74,7 +75,13 @@ export default function App() {
     setCart(await apiRequest('/cart'));
   }
 
+  async function loadOrders() {
+    const path = auth?.role === 'ADMIN' ? '/orders' : '/orders/my';
+    setOrders(await apiRequest(path));
+  }
+
   const isAdmin = auth?.role === 'ADMIN';
+  const isUser = auth?.role === 'USER';
 
   useEffect(() => {
     loadBooks().catch((requestError) => {
@@ -85,10 +92,17 @@ export default function App() {
   useEffect(() => {
     if (!auth) {
       setCart([]);
+      setOrders([]);
       return;
     }
     loadCart().catch((requestError) => setError(requestError.message));
   }, [auth?.token]);
+
+  useEffect(() => {
+    if (page === 'my-orders' || page === 'all-orders') {
+      loadOrders().catch((requestError) => setError(requestError.message));
+    }
+  }, [page, auth?.token]);
 
   useEffect(() => {
     function handleAuthExpired() {
@@ -121,6 +135,12 @@ export default function App() {
 
   function changePage(nextPage) {
     if (nextPage === 'admin' && !isAdmin) {
+      return;
+    }
+    if (nextPage === 'my-orders' && !isUser) {
+      return;
+    }
+    if (nextPage === 'all-orders' && !isAdmin) {
       return;
     }
     if (nextPage === 'cart' && !auth) {
@@ -269,6 +289,30 @@ export default function App() {
     }
   }
 
+  async function placeOrder() {
+    setError('');
+    try {
+      await apiRequest('/orders', { method: 'POST' });
+      setCart([]);
+      setPage(isAdmin ? 'all-orders' : 'my-orders');
+    } catch (requestError) {
+      setError(requestError.message);
+    }
+  }
+
+  async function updateOrderStatus(orderId, status) {
+    setError('');
+    try {
+      await apiRequest(`/orders/${orderId}/status`, {
+        method: 'PUT',
+        body: JSON.stringify({ status }),
+      });
+      await loadOrders();
+    } catch (requestError) {
+      setError(requestError.message);
+    }
+  }
+
   const cartCount = cart.reduce((total, item) => total + item.quantity, 0);
   const cartTotal = cart.reduce(
     (total, item) => total + item.book.price * item.quantity,
@@ -296,6 +340,22 @@ export default function App() {
               onClick={() => changePage('admin')}
             >
               Manage books
+            </button>
+          )}
+          {isUser && (
+            <button
+              className={page === 'my-orders' ? 'nav-link active' : 'nav-link'}
+              onClick={() => changePage('my-orders')}
+            >
+              My Orders
+            </button>
+          )}
+          {isAdmin && (
+            <button
+              className={page === 'all-orders' ? 'nav-link active' : 'nav-link'}
+              onClick={() => changePage('all-orders')}
+            >
+              All Orders
             </button>
           )}
           {auth ? (
@@ -551,7 +611,65 @@ export default function App() {
                     <strong>{formatPrice(cartTotal)}</strong>
                   </div>
                   <p className="muted">Shipping and taxes calculated at checkout.</p>
+                  <button className="button button-dark full-width" onClick={placeOrder}>
+                    Place Order
+                  </button>
                 </aside>
+              </div>
+            )}
+          </section>
+        )}
+
+        {(page === 'my-orders' || page === 'all-orders') && auth && (
+          <section>
+            <div className="page-intro">
+              <p className="eyebrow">{isAdmin ? 'Administration' : 'Your account'}</p>
+              <h1>{isAdmin ? 'All Orders' : 'My Orders'}</h1>
+            </div>
+            {orders.length === 0 ? (
+              <p className="empty-state panel">No orders yet.</p>
+            ) : (
+              <div className="orders-list">
+                {orders.map((order) => (
+                  <article className="panel order-card" key={order.id}>
+                    <div className="order-heading">
+                      <div>
+                        <h2>Order #{order.id}</h2>
+                        <p className="muted">
+                          {order.user?.username && `${order.user.username} · `}
+                          {new Date(order.createdAt).toLocaleString()}
+                        </p>
+                      </div>
+                      {isAdmin ? (
+                        <label className="status-select">
+                          Status
+                          <select
+                            value={order.status}
+                            onChange={(event) => updateOrderStatus(order.id, event.target.value)}
+                          >
+                            <option value="PLACED">PLACED</option>
+                            <option value="SHIPPED">SHIPPED</option>
+                            <option value="DELIVERED">DELIVERED</option>
+                          </select>
+                        </label>
+                      ) : (
+                        <strong className="order-status">{order.status}</strong>
+                      )}
+                    </div>
+                    <div className="order-items">
+                      {order.items.map((item) => (
+                        <div className="order-item" key={item.id}>
+                          <span>{item.book.title} × {item.quantity}</span>
+                          <span>{formatPrice(item.priceAtPurchase * item.quantity)}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="order-total">
+                      <strong>Total</strong>
+                      <strong>{formatPrice(order.totalPrice)}</strong>
+                    </div>
+                  </article>
+                ))}
               </div>
             )}
           </section>

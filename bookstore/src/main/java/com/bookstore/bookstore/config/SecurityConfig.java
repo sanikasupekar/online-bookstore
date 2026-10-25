@@ -55,6 +55,11 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/books/**").permitAll()
                         .requestMatchers("/books/**").hasRole("ADMIN")
                         .requestMatchers("/cart/**").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/orders/my").authenticated()
+                        .requestMatchers(HttpMethod.POST, "/orders").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/orders").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.PUT, "/orders/**").hasRole("ADMIN")
+                        .requestMatchers("/orders/**").authenticated()
                         .anyRequest().permitAll())
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
         return http.build();
